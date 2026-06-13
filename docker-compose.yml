@@ -1,0 +1,72 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: databundle-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: databundle
+      POSTGRES_PASSWORD: databundle_secret
+      POSTGRES_DB: databundle
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U databundle"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: databundle-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      target: server
+    container_name: databundle-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      DATABASE_URL: postgresql://databundle:databundle_secret@postgres:5432/databundle?schema=public
+      REDIS_URL: redis://redis:6379
+      CLIENT_URL: http://localhost
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-use-32-chars-min}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-sk_test_your_key}
+      TELECOM_MODE: mock
+    ports:
+      - "5000:5000"
+
+  client:
+    build:
+      context: .
+      target: client
+    container_name: databundle-client
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+
+volumes:
+  postgres_data:
+  redis_data:

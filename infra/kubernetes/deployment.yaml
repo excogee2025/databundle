@@ -1,0 +1,150 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: databundle
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: databundle-secrets
+  namespace: databundle
+type: Opaque
+stringData:
+  DATABASE_URL: postgresql://databundle:databundle_secret@postgres:5432/databundle
+  REDIS_URL: redis://redis:6379
+  JWT_SECRET: change-me-in-production
+  PAYSTACK_SECRET_KEY: sk_test_your_key
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: databundle-api
+  namespace: databundle
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: databundle-api
+  template:
+    metadata:
+      labels:
+        app: databundle-api
+    spec:
+      containers:
+        - name: api
+          image: databundle-api:latest
+          ports:
+            - containerPort: 5000
+          envFrom:
+            - secretRef:
+                name: databundle-secrets
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "5000"
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: databundle-api
+  namespace: databundle
+spec:
+  selector:
+    app: databundle-api
+  ports:
+    - port: 5000
+      targetPort: 5000
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: databundle-client
+  namespace: databundle
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: databundle-client
+  template:
+    metadata:
+      labels:
+        app: databundle-client
+    spec:
+      containers:
+        - name: nginx
+          image: databundle-client:latest
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: databundle-client
+  namespace: databundle
+spec:
+  selector:
+    app: databundle-client
+  ports:
+    - port: 80
+      targetPort: 80
+  type: LoadBalancer
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: databundle-ingress
+  namespace: databundle
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+    - hosts:
+        - databundle.example.com
+      secretName: databundle-tls
+  rules:
+    - host: databundle.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: databundle-api
+                port:
+                  number: 5000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: databundle-client
+                port:
+                  number: 80

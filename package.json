@@ -1,0 +1,20 @@
+{
+  "name": "data-bundle-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ghana data bundle purchase platform with Paystack & telecom integration",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client",
+    "build": "npm run build --prefix client",
+    "start": "npm run start --prefix server",
+    "db:generate": "npm run db:generate --prefix server",
+    "db:push": "npm run db:push --prefix server",
+    "db:seed": "npm run db:seed --prefix server",
+    "setup": "npm install && npm install --prefix server && npm install --prefix client && npm run db:generate --prefix server && npm run db:push --prefix server && npm run db:seed --prefix server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

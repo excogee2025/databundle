@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+*.db
+.git
+README.md
+ARCHITECTURE.md
+infra/kubernetes

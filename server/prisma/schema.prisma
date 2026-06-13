@@ -1,0 +1,295 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users & Agents ───────────────────────────────────────────────
+model User {
+  id                String              @id @default(uuid()) @map("user_id")
+  email             String              @unique
+  name              String
+  phone             String?
+  password          String              @map("password_hash")
+  role              String              @default("customer")
+  wallet            Float               @default(0)
+  commissionRate    Float?              @map("commission_rate")
+  parentAgentId     String?             @map("parent_agent_id")
+  parentAgent       User?               @relation("AgentHierarchy", fields: [parentAgentId], references: [id])
+  subAgents         User[]              @relation("AgentHierarchy")
+  active            Boolean             @default(true)
+  gdprConsent       Boolean             @default(false) @map("gdpr_consent")
+  gdprConsentAt     DateTime?           @map("gdpr_consent_at")
+  dataRetentionDays Int                 @default(365) @map("data_retention_days")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  agentProfile      Agent?
+  orders            Order[]
+  agentOrders       Order[]             @relation("AgentOrders")
+  walletRecord      Wallet?
+  walletTxns        WalletTransaction[]
+  notifications     Notification[]
+  supportTickets    SupportTicket[]
+  agentPricing      AgentPricing[]
+  promotionsCreated Promotion[]         @relation("PromotionCreator")
+  promotionsApproved Promotion[]        @relation("PromotionApprover")
+  commissions       Commission[]
+  auditLogs         AuditLog[]
+  fraudAlerts       FraudAlert[]
+
+  @@map("users")
+}
+
+model Agent {
+  id              String   @id @default(uuid()) @map("agent_id")
+  userId          String   @unique @map("user_id")
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  level           String   // basic_agent | senior_agent | super_agent
+  commissionRate  Float    @map("commission_rate")
+  parentAgentId   String?  @map("parent_agent_id")
+  parentAgent     Agent?   @relation("AgentTree", fields: [parentAgentId], references: [id])
+  subAgents       Agent[]  @relation("AgentTree")
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("agents")
+}
+
+// ─── Bundles & Networks ───────────────────────────────────────────
+model Network {
+  id       String   @id @default(uuid())
+  name     String   @unique
+  slug     String   @unique
+  color    String
+  logoUrl  String?  @map("logo_url")
+  active   Boolean  @default(true)
+  bundles  Bundle[]
+
+  @@map("networks")
+}
+
+model Bundle {
+  id           String         @id @default(uuid()) @map("bundle_id")
+  networkId    String         @map("network_id")
+  network      Network        @relation(fields: [networkId], references: [id])
+  name         String
+  dataAmount   String         @map("data_size")
+  validity     String         @map("validity_days")
+  price        Float
+  costPrice    Float          @map("cost_price")
+  apiCode      String         @map("api_code")
+  operator     String         @default("")
+  popular      Boolean        @default(false)
+  active       Boolean        @default(true)
+  createdAt    DateTime       @default(now()) @map("created_at")
+  orderItems   OrderItem[]
+  agentPricing AgentPricing[]
+  promotions   Promotion[]
+
+  @@map("bundles")
+}
+
+// ─── Purchases (Orders) ───────────────────────────────────────────
+model Order {
+  id               String        @id @default(uuid()) @map("purchase_id")
+  orderNumber      String        @unique @map("order_number")
+  userId           String?       @map("user_id")
+  user             User?         @relation(fields: [userId], references: [id])
+  agentId          String?       @map("agent_id")
+  agent            User?         @relation("AgentOrders", fields: [agentId], references: [id])
+  guestEmail       String?       @map("guest_email")
+  guestPhone       String?       @map("guest_phone")
+  recipientPhone   String        @map("recipient_phone")
+  networkSlug      String        @map("network_slug")
+  totalAmount      Float         @map("total_amount")
+  commissionAmount Float         @default(0) @map("commission_amount")
+  paymentSource    String        @default("paystack") @map("payment_source")
+  status           String        @default("pending")
+  paymentRef       String?       @unique @map("payment_ref")
+  paymentMethod    String?       @map("payment_method")
+  paidAt           DateTime?     @map("paid_at")
+  fulfilledAt      DateTime?     @map("fulfilled_at")
+  telecomRef       String?       @map("transaction_id")
+  telecomStatus    String?       @map("telecom_status")
+  failureReason    String?       @map("failure_reason")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+  items            OrderItem[]
+  transactions     Transaction[]
+  commissions      Commission[]
+
+  @@map("purchases")
+}
+
+model OrderItem {
+  id        String @id @default(uuid())
+  orderId   String @map("purchase_id")
+  order     Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  bundleId  String @map("bundle_id")
+  bundle    Bundle @relation(fields: [bundleId], references: [id])
+  quantity  Int    @default(1)
+  unitPrice Float  @map("unit_price")
+
+  @@map("purchase_items")
+}
+
+// ─── Transactions & Wallets ───────────────────────────────────────
+model Transaction {
+  id          String   @id @default(uuid()) @map("transaction_id")
+  orderId     String   @map("purchase_id")
+  order       Order    @relation(fields: [orderId], references: [id])
+  type        String
+  amount      Float
+  reference   String   @unique
+  status      String
+  provider    String   @map("payment_method")
+  rawResponse String?  @map("raw_response")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("transactions")
+}
+
+model Wallet {
+  id        String   @id @default(uuid()) @map("wallet_id")
+  userId    String   @unique @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance   Float    @default(0)
+  currency  String   @default("GHS")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  user         User     @relation(fields: [userId], references: [id])
+  type         String
+  amount       Float
+  balanceAfter Float    @map("balance_after")
+  reference    String   @unique
+  description  String?
+  status       String   @default("completed")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("wallet_transactions")
+}
+
+// ─── Notifications ────────────────────────────────────────────────
+model Notification {
+  id        String   @id @default(uuid()) @map("notification_id")
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  message   String
+  type      String   @default("info")
+  status    String   @default("sent")
+  read      Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("notifications")
+}
+
+// ─── Security & Compliance ────────────────────────────────────────
+model AuditLog {
+  id        String   @id @default(uuid()) @map("log_id")
+  userId    String?  @map("user_id")
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  resource  String?
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  metadata  String?
+  severity  String   @default("info")
+  createdAt DateTime @default(now()) @map("timestamp")
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model FraudAlert {
+  id          String   @id @default(uuid())
+  userId      String?  @map("user_id")
+  user        User?    @relation(fields: [userId], references: [id])
+  type        String
+  description String
+  score       Float    @default(0)
+  ipAddress   String?  @map("ip_address")
+  resolved    Boolean  @default(false)
+  metadata    String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([resolved])
+  @@map("fraud_alerts")
+}
+
+// ─── Other ────────────────────────────────────────────────────────
+model SupportTicket {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [id])
+  subject    String
+  message    String
+  priority   String   @default("normal")
+  status     String   @default("open")
+  adminReply String?  @map("admin_reply")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("support_tickets")
+}
+
+model AgentPricing {
+  id          String   @id @default(uuid())
+  agentId     String   @map("agent_id")
+  agent       User     @relation(fields: [agentId], references: [id])
+  bundleId    String   @map("bundle_id")
+  bundle      Bundle   @relation(fields: [bundleId], references: [id])
+  customPrice Float    @map("custom_price")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([agentId, bundleId])
+  @@map("agent_pricing")
+}
+
+model Promotion {
+  id           String    @id @default(uuid())
+  title        String
+  description  String?
+  discountPct  Float     @map("discount_pct")
+  bundleId     String?   @map("bundle_id")
+  bundle       Bundle?   @relation(fields: [bundleId], references: [id])
+  createdById  String    @map("created_by_id")
+  createdBy    User      @relation("PromotionCreator", fields: [createdById], references: [id])
+  approvedById String?   @map("approved_by_id")
+  approvedBy   User?     @relation("PromotionApprover", fields: [approvedById], references: [id])
+  status       String    @default("pending")
+  startDate    DateTime? @map("start_date")
+  endDate      DateTime? @map("end_date")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@map("promotions")
+}
+
+model Commission {
+  id        String   @id @default(uuid())
+  agentId   String   @map("agent_id")
+  agent     User     @relation(fields: [agentId], references: [id])
+  orderId   String   @map("purchase_id")
+  order     Order    @relation(fields: [orderId], references: [id])
+  amount    Float
+  rate      Float
+  status    String   @default("paid")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("commissions")
+}
